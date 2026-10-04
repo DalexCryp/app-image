@@ -7,7 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run build`: production build, which also type-checks. Use it to verify changes.
 - `npm start`: serve the production build
 
-There is no linter and there are no tests. Env vars come from `.env.local` (template: `.env.example`), and the dev server must be restarted after editing it.
+There is no linter and there are no tests. Env vars come from `.env.local` (template: `.env.example`), and the dev server must be restarted after editing it. On Vercel, env var changes only take effect after a redeploy. Pushing to `main` deploys to production.
+
+Every page except `/login` and `/signup` needs a session, so a signed-out `curl localhost:3000/` returns a 307 to `/login`. A signed-out POST to `/api/generate` returns 401, after the origin check.
 
 To exercise the API route by hand, send an `Origin` header that matches the host. Without one the route returns 403:
 ```bash
@@ -27,10 +29,16 @@ A single-page Virtual Try-On app built with Next.js 16 (App Router), React 19, T
 - **The n8n webhook must never be called from the browser.** Its URL (`N8N_WEBHOOK_URL`) and optional secret (`N8N_WEBHOOK_SECRET`, sent as the `X-Webhook-Secret` header) are server-only env vars in `.env.local` (see `.env.example`). Never give them a `NEXT_PUBLIC_` prefix and never hardcode them.
 - **Auth (Supabase):** all auth runs on the server, which is why the CSP can stay `connect-src 'self'`. `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` are server-only, so do not add a browser Supabase client.
   - `proxy.ts` (Next 16's name for middleware) calls `lib/supabase/proxy.ts`. That file refreshes the session and redirects signed-out visitors to `/login`. It skips `/api/*` and `/auth/*`.
-  - Sign-up, login and logout are Server Actions in `app/(auth)/actions.ts`. Email confirmation lands on `app/auth/confirm/route.ts` through `verifyOtp`.
+  - Sign-up, login and logout are Server Actions in `app/(auth)/actions.ts`. The forms are in `components/auth-form.tsx`.
+  - Email confirmation lands on `app/auth/confirm/route.ts`. It accepts both `?token_hash=&type=` (`verifyOtp`, from the custom email template) and `?code=` (`exchangeCodeForSession`, from the default template), so keep both branches.
   - `/api/generate` returns 401 without a session.
   - Always use `auth.getClaims()` on the server, never `getSession()`.
   - Each user's name is stored in `user_metadata.full_name`, and a trigger copies it to `public.profiles` (RLS: each user can read only their own row).
+    - That schema (migration `create_profiles`) exists only in the Supabase project, not in this repo. Inspect it with the Supabase MCP tools (`list_tables`, `list_migrations`) and change it with `apply_migration`, then run `get_advisors`.
+  - Testing sign-up sends real emails, and Supabase's built-in mailer allows only a few per hour.
+    - Signing up again with an already-registered email returns success but sends nothing, on purpose.
+    - To debug, read the Supabase `auth_logs` (`query_logs`) and `auth.users` instead of guessing.
+  - Dashboard settings (Site URL, Redirect URLs, email template) aren't in code. The README's Accounts section lists them.
 - **Defences in the route:** a same-origin check (requests without an `Origin` header are rejected), a best-effort in-memory per-IP rate limit, verification of PNG, JPEG and WebP by magic bytes (the client-supplied type is not trusted), and file renaming before forwarding. Errors sent to the client are generic; details go to `console.error` only.
 - **Size limits are shared** through `lib/upload-limits.ts` (2 MB per image), because Vercel rejects function request bodies over 4.5 MB. The route sets `maxDuration = 300` and an upstream timeout of 290 s, since generation is slow. The result is buffered before it is returned, so it must also fit Vercel's 4.5 MB response limit.
 - User-facing error strings are matched in the README's Troubleshooting table. Keep the two in sync when changing them.

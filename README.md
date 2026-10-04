@@ -1,13 +1,13 @@
 # Fitting Room: Virtual Try-On
 
-A Next.js app. You upload a photo of a person and a photo of a garment, and an n8n workflow generates the person wearing that garment.
+A Next.js app. You upload a photo of a person and a photo of a garment, and an n8n workflow generates the person wearing that garment. Only logged-in users can use it. Accounts are handled by Supabase Auth.
 
 ```
 Browser ──POST image1, image2──▶ /api/generate (Next.js server route) ──▶ n8n webhook
-        ◀──────── image ────────                                      ◀── binary image
+        ◀──────── image ────────        │ checks the Supabase session   ◀── binary image
 ```
 
-The browser never talks to n8n directly. The webhook URL and secret only exist on the server.
+The browser never talks to n8n or Supabase directly. The webhook URL, the secret and the Supabase keys only exist on the server.
 
 ## Setup
 Requires Node.js 20 or newer.
@@ -53,9 +53,13 @@ Do these steps once in the Supabase dashboard:
 - **Respond to Webhook node:** respond with **Binary File**. The file must be a PNG, JPEG or WebP image. A JSON response is rejected.
 
 ## Deploy to Vercel
-1. Push this repo to GitHub and import it at vercel.com/new. Vercel detects Next.js automatically.
-2. Under **Project → Settings → Environment Variables**, add `N8N_WEBHOOK_URL`, `N8N_WEBHOOK_SECRET`, `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`, then redeploy.
-3. Recommended: under **Firewall**, add a rate-limit rule for `/api/generate`.
+1. Push this repo to GitHub and import it at vercel.com/new. Vercel detects Next.js automatically. After that, every push to `main` deploys to production.
+2. Under **Project → Settings → Environment Variables**, add `N8N_WEBHOOK_URL`, `N8N_WEBHOOK_SECRET`, `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` for **Production** and **Preview**.
+   - If you paste a whole `.env` file and Vercel says a variable "already exists", that variable is already set. Add only the missing ones, or use **⋯ → Edit** to change a value.
+3. **Redeploy** (Deployments → latest → **⋯ → Redeploy**). Environment variables only apply to deployments built after they were saved.
+4. In Supabase, set the **Site URL** to your Vercel domain and add `https://<your-domain>/**` to **Redirect URLs**, as described in [Accounts](#accounts-supabase-auth).
+5. Check it: opening the site should redirect to `/login`.
+6. Recommended: under **Firewall**, add a rate-limit rule for `/api/generate`.
 
 ## Security
 - **`/api/generate` checks every request.** It only accepts POSTs from the app's own origin, and it verifies that each upload really is a PNG, JPEG or WebP by inspecting the file contents. Uploaded files are renamed before they are forwarded to n8n.
@@ -71,6 +75,8 @@ Do these steps once in the Supabase dashboard:
 ## Troubleshooting
 | Message | Likely cause |
 | --- | --- |
+| Login doesn't work on Vercel, or the site shows the try-on page without asking you to log in | The live deployment is an old build, or it was built before the Supabase variables were added. Check that the latest Production deployment has the newest commit, then **Redeploy**. |
+| 500 error or "Application error" on Vercel | `SUPABASE_URL` or `SUPABASE_PUBLISHABLE_KEY` is missing for that environment. Add it, then **Redeploy**. |
 | "The server is not configured." | `N8N_WEBHOOK_URL` is missing. Set it, then restart the server or redeploy. |
 | "The generator failed to process these images." | n8n returned an error status. Check the workflow's executions in n8n. |
 | "The generator did not return an image." | The Respond to Webhook node is sending JSON or text instead of a binary image. |
