@@ -29,8 +29,23 @@ npm run dev                  # http://localhost:3000
 | --- | --- | --- |
 | `N8N_WEBHOOK_URL` | Yes | The n8n Webhook node's production URL |
 | `N8N_WEBHOOK_SECRET` | Recommended | Sent as the `X-Webhook-Secret` header so n8n can reject anyone else |
+| `SUPABASE_URL` | Yes | The Supabase project URL |
+| `SUPABASE_PUBLISHABLE_KEY` | Yes | The project's publishable key (`sb_publishable_...`) |
 
-Both are **server-only**. Never give them a `NEXT_PUBLIC_` prefix, or they will be embedded in the browser JavaScript. After changing `.env.local`, restart `npm run dev`.
+All of them are **server-only**. Never give them a `NEXT_PUBLIC_` prefix, or they will be embedded in the browser JavaScript. After changing `.env.local`, restart `npm run dev`.
+
+## Accounts (Supabase Auth)
+Users sign up with their name, email and password, confirm their email, and then log in. Signed-out visitors are redirected to `/login`, and `/api/generate` returns 401 without a session. All auth runs on the server through Server Actions, so the browser never calls Supabase directly. Each new user's name is copied into the `public.profiles` table by a database trigger.
+
+Do these steps once in the Supabase dashboard:
+1. **Authentication → URL Configuration:**
+   - Set **Site URL** to your production domain.
+   - Add `http://localhost:3000/**` and `https://*-<your-team>.vercel.app/**` to **Redirect URLs**.
+2. **Authentication → Emails → Confirm signup (recommended):** set the link in the template to
+   `{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=email`
+   The app sends `<current origin>/auth/confirm` as the redirect, so links work on localhost, previews and production. `/auth/confirm` also accepts the default template's `?code=` link, but that link only works in the browser where the user signed up.
+3. **Authentication → Sign In / Providers → Email:** keep **Confirm email** on, and set the minimum password length to 8.
+4. **Production:** configure custom SMTP. Supabase's built-in mailer only sends a few emails per hour.
 
 ## The n8n workflow
 - **Webhook node:** method `POST`, and **Respond** set to "Using 'Respond to Webhook' node". It receives two binary fields, `image1` (the person) and `image2` (the garment), each a PNG, JPEG or WebP file.
@@ -39,7 +54,7 @@ Both are **server-only**. Never give them a `NEXT_PUBLIC_` prefix, or they will 
 
 ## Deploy to Vercel
 1. Push this repo to GitHub and import it at vercel.com/new. Vercel detects Next.js automatically.
-2. Under **Project → Settings → Environment Variables**, add `N8N_WEBHOOK_URL` and `N8N_WEBHOOK_SECRET`, then redeploy.
+2. Under **Project → Settings → Environment Variables**, add `N8N_WEBHOOK_URL`, `N8N_WEBHOOK_SECRET`, `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`, then redeploy.
 3. Recommended: under **Firewall**, add a rate-limit rule for `/api/generate`.
 
 ## Security
@@ -62,3 +77,8 @@ Both are **server-only**. Never give them a `NEXT_PUBLIC_` prefix, or they will 
 | "Generation timed out." | The workflow took longer than about 290 s. |
 | "Too many requests." | The per-IP rate limit was hit. Wait 10 minutes. |
 | "Forbidden." | The request came from another origin, or came without an `Origin` header. |
+| "Please log in to continue." | `/api/generate` was called without a valid session. The page sends the user to `/login`. |
+| "Please confirm your email first." | The user hasn't clicked the link in the confirmation email yet. |
+| "That confirmation link is invalid or has expired." | The link was already used or is too old, or the email template isn't set up as described in Accounts. |
+| No confirmation email after signing up | The email is already registered (Supabase sends nothing, so accounts can't be discovered), or the email rate limit was hit. Log in instead, or check Auth logs. |
+| "Could not create account." | Supabase rejected the sign-up, often because of the email rate limit. Check Auth logs in Supabase. |

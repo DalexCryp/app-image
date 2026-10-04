@@ -1,3 +1,4 @@
+import { createClient } from "@/lib/supabase/server";
 import { MAX_FILE_BYTES } from "@/lib/upload-limits";
 
 // Server-side proxy to the n8n webhook so its URL and secret never reach the browser.
@@ -70,6 +71,12 @@ export async function POST(request: Request) {
 
   if (!isSameOrigin(request)) {
     return jsonError("Forbidden.", 403);
+  }
+
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getClaims();
+  if (!auth?.claims) {
+    return jsonError("Please log in to continue.", 401);
   }
 
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0].trim() || "unknown";
